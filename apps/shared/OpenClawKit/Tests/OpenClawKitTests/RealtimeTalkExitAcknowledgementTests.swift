@@ -140,6 +140,15 @@ struct RealtimeTalkExitAcknowledgementTests {
         #expect(!fixture.session._test_exitAcknowledgementPending)
     }
 
+    @Test(arguments: [nil, false] as [Bool?])
+    func `default and disabled options cannot drain even if gateway claims support`(enabled: Bool?) async throws {
+        let fixture = try await Fixture(enabled: enabled)
+        defer { fixture.stop() }
+        #expect(await fixture.session.finishSpokenExitAcknowledgement() == false)
+        #expect(!fixture.session._test_exitAcknowledgementPending)
+        #expect(fixture.capture.retirementCount == 0)
+    }
+
     @MainActor
     private final class ConsumingPlayer: PCMStreamingAudioPlaying {
         let consumed = RealtimeRelayTestSignal<Void>()
@@ -164,6 +173,7 @@ struct RealtimeTalkExitAcknowledgementTests {
         let retired = RealtimeRelayTestSignal<Void>()
         let supported: Bool
         var stopCount = 0
+        var retirementCount = 0
         init(supported: Bool) {
             self.supported = supported
         }
@@ -177,6 +187,7 @@ struct RealtimeTalkExitAcknowledgementTests {
         }
 
         func stopInputPreservingPlayback() -> Bool {
+            self.retirementCount += 1
             if self.supported {
                 self.retired.send(())
             }
@@ -196,6 +207,7 @@ struct RealtimeTalkExitAcknowledgementTests {
         init(
             supported: Bool = true,
             captureSupports: Bool = true,
+            enabled: Bool? = true,
             playback: (any PCMStreamingAudioPlaying)? = nil) async throws
         {
             self.capture = Capture(supported: captureSupports)
@@ -228,7 +240,14 @@ struct RealtimeTalkExitAcknowledgementTests {
                     }
                     return Data("{\"ok\":true}".utf8)
                 }),
-                options: .init(sessionKey: "test", provider: nil, model: nil, voice: nil),
+                options: enabled.map {
+                    .init(
+                        sessionKey: "test",
+                        provider: nil,
+                        model: nil,
+                        voice: nil,
+                        spokenExitAcknowledgementEnabled: $0)
+                } ?? .init(sessionKey: "test", provider: nil, model: nil, voice: nil),
                 audioCapture: self.capture,
                 pcmPlayer: playback ?? self.player,
                 onStatus: { _ in },

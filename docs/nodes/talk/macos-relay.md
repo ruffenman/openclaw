@@ -24,8 +24,9 @@ The Mac turns off Talk Mode, stops capture and playback, and plays a short
 confirmation sound, even when Talk phase sounds are disabled. If you do not hear
 the sound, check that Talk Mode is off; silence does not confirm a successful stop.
 
-On compatible OpenAI `gpt-realtime-2.1` Gateway relays, the Mac also asks the
-assistant to acknowledge a standalone stop command with a brief “Okay.” in its
+**Dashboard → Settings → Talk → This Mac → Spoken exit acknowledgement** is off
+by default. Enable it to add response instructions on compatible OpenAI
+`gpt-realtime-2.1` Gateway relays, asking the assistant to acknowledge a standalone stop command with a brief “Okay.” in its
 current voice. The Mac stops microphone delivery immediately and allows up to
 1.2 seconds of suitable acknowledgement audio to finish before the same
 confirmation sound. A two-second failure deadline keeps shutdown from hanging;
@@ -34,7 +35,12 @@ This is best effort: speech and transcripts can arrive out of order, so the
 acknowledgement may be clipped or omitted. The final local stop-phrase matcher
 still decides whether Talk turns off; the model cannot disable it.
 
-Changing or resetting stop phrases during realtime Talk restarts that session
+Turning this setting off omits those response instructions and immediately uses
+the existing shutdown and confirmation sound. Stop phrases and transcription
+hints still work. This preference is local to the Mac; it does not change Gateway
+configuration or the voice selected for other clients.
+
+Changing this setting or changing/resetting stop phrases during realtime Talk restarts that session
 through the normal reconfiguration path so response guidance and recognition
 context use the new list. Older Gateways, other models, and forced agent-consult
 routes retain immediate shutdown and the existing confirmation sound.

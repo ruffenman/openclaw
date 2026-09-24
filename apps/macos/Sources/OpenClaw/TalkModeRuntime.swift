@@ -181,7 +181,9 @@ actor TalkModeRuntime {
     {
         let owner = self.transcriptOwner
         guard isFinal, owner.lifecycle == lifecycleGeneration, self.ownsTranscript(owner) else { return false }
-        let phrases = await MainActor.run { AppStateStore.shared.talkStopPhrases }
+        let (phrases, spokenExitAcknowledgementEnabled) = await MainActor.run {
+            (AppStateStore.shared.talkStopPhrases, AppStateStore.shared.talkSpokenExitAcknowledgementEnabled)
+        }
         // Preference delivery crosses actors; a replacement session must not
         // inherit an earlier session's completed command.
         guard self.ownsTranscript(owner) else { return false }
@@ -200,7 +202,7 @@ actor TalkModeRuntime {
 
         // Claim before awaiting playback so duplicate transcripts cannot shut it down early.
         self.pendingSpokenExit = owner
-        if let session = realtimeSession {
+        if spokenExitAcknowledgementEnabled, let session = realtimeSession {
             _ = await session.finishSpokenExitAcknowledgement()
             // An accepted exit still completes if pause or caller cancellation settles
             // its waiter. Only an actual lifecycle/relay replacement may revoke it.

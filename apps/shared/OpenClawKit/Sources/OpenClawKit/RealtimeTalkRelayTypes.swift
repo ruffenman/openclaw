@@ -144,6 +144,7 @@ extension RealtimeTalkRelaySession {
         public let model: String?
         public let voice: String?
         public let localStopPhrases: [String]?
+        public let spokenExitAcknowledgementEnabled: Bool
         public let speechLocaleID: String?
         public let supportsVoiceSelection: Bool
         public let voiceChangeId: String?
@@ -154,6 +155,7 @@ extension RealtimeTalkRelaySession {
             model: String?,
             voice: String?,
             localStopPhrases: [String]? = nil,
+            spokenExitAcknowledgementEnabled: Bool = false,
             speechLocaleID: String? = nil,
             supportsVoiceSelection: Bool = false,
             voiceChangeId: String? = nil)
@@ -163,6 +165,7 @@ extension RealtimeTalkRelaySession {
             self.model = model
             self.voice = voice
             self.localStopPhrases = localStopPhrases
+            self.spokenExitAcknowledgementEnabled = spokenExitAcknowledgementEnabled
             self.speechLocaleID = speechLocaleID
             self.supportsVoiceSelection = supportsVoiceSelection
             self.voiceChangeId = voiceChangeId

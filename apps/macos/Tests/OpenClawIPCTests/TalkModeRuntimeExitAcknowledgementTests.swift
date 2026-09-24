@@ -40,11 +40,14 @@ extension TalkModeRuntimeSpeechTests {
     @Test(arguments: [false, true]) @MainActor
     func `duplicate final command does not bypass pending acknowledgement`(pauseBeforeCompletion: Bool) async throws {
         try #require(AppStateStore.shared.isPreview)
+        let previousSpoken = AppStateStore.shared.talkSpokenExitAcknowledgementEnabled
+        AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = true
         let previousEnabled = AppStateStore.shared.talkEnabled
         let previousPhrases = AppStateStore.shared.talkStopPhrases
         AppStateStore.shared.talkEnabled = true
         AppStateStore.shared.talkStopPhrases = ["end talking"]
         defer {
+            AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = previousSpoken
             AppStateStore.shared.talkEnabled = previousEnabled
             AppStateStore.shared.talkStopPhrases = previousPhrases
         }
@@ -96,11 +99,14 @@ extension TalkModeRuntimeSpeechTests {
     @MainActor
     func `retired acknowledgement cannot disable a successor`(replacement: String) async throws {
         try #require(AppStateStore.shared.isPreview)
+        let previousSpoken = AppStateStore.shared.talkSpokenExitAcknowledgementEnabled
+        AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = true
         let previousEnabled = AppStateStore.shared.talkEnabled
         let previousPhrases = AppStateStore.shared.talkStopPhrases
         AppStateStore.shared.talkEnabled = true
         AppStateStore.shared.talkStopPhrases = ["stop talking"]
         defer {
+            AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = previousSpoken
             AppStateStore.shared.talkEnabled = previousEnabled
             AppStateStore.shared.talkStopPhrases = previousPhrases
         }
@@ -137,6 +143,45 @@ extension TalkModeRuntimeSpeechTests {
                 _ = await command.value
                 throw error
             }
+        } catch {
+            await runtime.setEnabled(false)
+            throw error
+        }
+        await runtime.setEnabled(false)
+    }
+
+    @Test @MainActor
+    func `disabled spoken acknowledgement ignores gateway capability and exits immediately`() async throws {
+        try #require(AppStateStore.shared.isPreview)
+        let previousSpoken = AppStateStore.shared.talkSpokenExitAcknowledgementEnabled
+        let previousEnabled = AppStateStore.shared.talkEnabled
+        let previousPhrases = AppStateStore.shared.talkStopPhrases
+        AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = false
+        AppStateStore.shared.talkEnabled = true
+        AppStateStore.shared.talkStopPhrases = ["end talking"]
+        defer {
+            AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = previousSpoken
+            AppStateStore.shared.talkEnabled = previousEnabled
+            AppStateStore.shared.talkStopPhrases = previousPhrases
+        }
+        let requests = RuntimeTestRelayRequestLog()
+        let bootstrap = try makeRuntimeTestBootstrap(requests: requests, exitAcknowledgementSupported: true)
+        let runtime = TalkModeRuntime(realtimeTalkBootstrapProvider: { bootstrap })
+        let capture = ExitAcknowledgementCapture()
+        defer { capture.retired.continuation.finish() }
+        await runtime._test_setRealtimeAudioCaptureProvider { capture }
+        let lifecycle = await runtime._test_prepareEnabledLifecycle()
+        await runtime._test_enableRealtimeRelaySelection()
+        do {
+            try await runtime.startRealtimeRelay(generation: lifecycle)
+            let session = try #require(await runtime.realtimeSession)
+            #expect(await runtime.handleLocalTalkExitCommand(
+                "end talking", isFinal: true, lifecycleGeneration: lifecycle))
+            #expect(capture.inputRetirementCount == 0)
+            #expect(!session._test_exitAcknowledgementPending)
+            #expect(await runtime.isEnabled == false)
+            #expect(!AppStateStore.shared.talkEnabled)
+            #expect(await requests.snapshot().methods.filter { $0 == "talk.session.close" }.count == 1)
         } catch {
             await runtime.setEnabled(false)
             throw error

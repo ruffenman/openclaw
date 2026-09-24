@@ -31,10 +31,16 @@ extension TalkModeRuntimeSpeechTests {
         #expect(await requests.createdLanguages() == ["en", "ru", nil, nil])
     }
 
-    @Test @MainActor func `relay hints use current preferences and never retain command authority`() async throws {
+    @Test(arguments: [false, true]) @MainActor
+    func `relay hints use current preferences and never retain command authority`(spokenEnabled: Bool) async throws {
         try #require(AppStateStore.shared.isPreview)
         let previous = AppStateStore.shared.talkStopPhrases
-        defer { AppStateStore.shared.talkStopPhrases = previous }
+        let previousSpoken = AppStateStore.shared.talkSpokenExitAcknowledgementEnabled
+        AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = spokenEnabled
+        defer {
+            AppStateStore.shared.talkStopPhrases = previous
+            AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = previousSpoken
+        }
         let catalog = Data(#"""
         {"realtime":{"providers":[{"id":"openai","configured":true,"transcriptionCommandHints":{
           "version":1,"kind":"local-stop-phrases","mode":"realtime","transport":"gateway-relay",
@@ -77,10 +83,13 @@ extension TalkModeRuntimeSpeechTests {
     @Test(arguments: [false, true]) @MainActor
     func `relay exit guidance is independently negotiated and refreshes current phrases`(supported: Bool) async throws {
         try #require(AppStateStore.shared.isPreview)
+        let previousSpoken = AppStateStore.shared.talkSpokenExitAcknowledgementEnabled
+        AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = true
         let previous = AppStateStore.shared.talkStopPhrases
         let previousRelayPreference = AppStateStore.shared.talkRealtimeRelayEnabled
         AppStateStore.shared.talkRealtimeRelayEnabled = true
         defer {
+            AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = previousSpoken
             AppStateStore.shared.talkStopPhrases = previous
             AppStateStore.shared.talkRealtimeRelayEnabled = previousRelayPreference
         }
@@ -92,7 +101,8 @@ extension TalkModeRuntimeSpeechTests {
           "maxPhrases":8,"maxPhraseUtf16Units":64,"maxTotalUtf16Units":256
         }}]}}
         """# : #"{"realtime":{"providers":[{"id":"openai","configured":true}]}}"#).utf8)
-        let phraseSets = [["conversation finished"], ["that is all"], []]
+        let phraseSets = [["conversation finished"], ["that is all"], ["that is all"], ["that is all"], []]
+        let spokenEnabled = [true, true, false, true, true]
         let requests = RuntimeTestRelayRequestLog()
         let bootstraps = try phraseSets.map { _ in
             try makeRuntimeTestBootstrap(requests: requests, realtimeModel: "gpt-realtime-2.1", catalog: catalog)
@@ -106,12 +116,14 @@ extension TalkModeRuntimeSpeechTests {
         AppStateStore.shared.talkStopPhrases = phraseSets[0]
         do {
             try await runtime.startRealtimeRelay(generation: lifecycle)
-            for phrases in phraseSets.dropFirst() {
+            for index in phraseSets.indices.dropFirst() {
+                let phrases = phraseSets[index]
+                AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = spokenEnabled[index]
                 let oldSession = try #require(await runtime.realtimeSession)
                 AppStateStore.shared.talkStopPhrases = phrases
                 // Preview preferences deliberately do not dispatch to the live singleton.
                 // Invoke the exact didSet target on this test-owned active runtime.
-                await runtime.localTalkStopPhrasesDidChange()
+                await runtime.localTalkExitPreferencesDidChange()
                 #expect(await runtime.isEnabled)
                 #expect(await runtime.realtimeSession != nil)
                 #expect(await runtime.realtimeSession !== oldSession)
@@ -121,20 +133,30 @@ extension TalkModeRuntimeSpeechTests {
             throw error
         }
         await runtime.setEnabled(false)
-        #expect(await sequence.requestCount() == 3)
-        #expect(await requests.snapshot().methods.filter { $0 == "talk.session.close" }.count == 3)
+        #expect(await sequence.requestCount() == 5)
+        #expect(await requests.snapshot().methods.filter { $0 == "talk.session.close" }.count == 5)
         #expect(await requests.createdExitPhrases() == (
-            supported ? [["conversation finished"], ["that is all"], nil] : [nil, nil, nil]))
-        #expect(await requests.createdHintPhrases() == [nil, nil, nil])
+            supported ? [["conversation finished"], ["that is all"], nil, ["that is all"], nil] : [
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+            ]))
+        #expect(await requests.createdHintPhrases() == [nil, nil, nil, nil, nil])
     }
 
-    @Test func `stop phrase changes preserve active native recognition`() async throws {
+    @Test(arguments: [false, true]) @MainActor
+    func `exit preference changes preserve active native recognition`(spokenEnabled: Bool) async throws {
+        let previousSpoken = AppStateStore.shared.talkSpokenExitAcknowledgementEnabled
+        defer { AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = previousSpoken }
         let runtime = TalkModeRuntime()
         // A regression must fail by state mutation, never reach real permission UI.
         await runtime._test_setVoiceWakeReadiness(supported: false, permissionGranted: false)
         let lifecycle = await runtime._test_prepareEnabledLifecycle()
         let recognition = try #require(await runtime.beginRecognitionAttempt(lifecycleGeneration: lifecycle))
-        await runtime.localTalkStopPhrasesDidChange()
+        AppStateStore.shared.talkSpokenExitAcknowledgementEnabled = spokenEnabled
+        await runtime.localTalkExitPreferencesDidChange()
         #expect(await runtime.isCurrent(lifecycle))
         #expect(await runtime.canCommitRecognitionStart(
             lifecycleGeneration: lifecycle, recognitionAttempt: recognition))

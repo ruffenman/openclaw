@@ -185,7 +185,8 @@ public final class RealtimeTalkRelaySession {
                         localized: "Gateway did not return a realtime relay session"),
                 ])
             }
-            self.supportsExitAcknowledgement = result.localexitacknowledgement == true
+            self.supportsExitAcknowledgement = self.options.spokenExitAcknowledgementEnabled &&
+                result.localexitacknowledgement == true
             self.logger
                 .info("talk exit acknowledgement guidanceApplied=\(self.supportsExitAcknowledgement, privacy: .public)")
             self.relaySessionId = relaySessionId
@@ -480,7 +481,9 @@ public final class RealtimeTalkRelaySession {
                 supported=\(supported, privacy: .public) \
                 sentPhraseCount=\(supported ? phrases.count : 0, privacy: .public)
                 """)
-            if let catalog, RealtimeTalkExitAcknowledgement.isSupported(catalog: catalog) {
+            if self.options.spokenExitAcknowledgementEnabled,
+               let catalog, RealtimeTalkExitAcknowledgement.isSupported(catalog: catalog)
+            {
                 payload["localExitCommands"] = AnyCodable(["phrases": AnyCodable(phrases)])
             }
             if supported {

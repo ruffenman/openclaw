@@ -94,7 +94,7 @@ extension TalkModeRuntime {
         return (self.realtimeReconfigurationGeneration, self.lifecycleGeneration)
     }
 
-    func localTalkStopPhrasesDidChange() async {
+    func localTalkExitPreferencesDidChange() async {
         // Native speech reads preferences for every final transcript. Only an active
         // relay has response guidance that needs replacing; preserve native fallback.
         guard self.realtimeSession != nil || self.realtimeRelayStartGeneration != nil else { return }
@@ -414,8 +414,11 @@ extension TalkModeRuntime {
         guard isCurrent(lifecycleGeneration), !isPaused,
               realtimeRelayGeneration == relayGeneration
         else { throw CancellationError() }
-        let (activeSessionKey, stopPhrases) = await MainActor.run {
-            (WebChatManager.shared.activeSessionKey, AppStateStore.shared.talkStopPhrases)
+        let (activeSessionKey, stopPhrases, spokenExitAcknowledgementEnabled) = await MainActor.run {
+            (
+                WebChatManager.shared.activeSessionKey,
+                AppStateStore.shared.talkStopPhrases,
+                AppStateStore.shared.talkSpokenExitAcknowledgementEnabled)
         }
         guard isCurrent(lifecycleGeneration), !self.isPaused,
               realtimeRelayGeneration == relayGeneration,
@@ -432,6 +435,7 @@ extension TalkModeRuntime {
             model: realtimeModelId,
             voice: realtimeSpeakerVoice,
             localStopPhrases: stopPhrases,
+            spokenExitAcknowledgementEnabled: spokenExitAcknowledgementEnabled,
             speechLocaleID: self.speechLocaleID)
         #if DEBUG
         let audioCaptureProvider = self.realtimeAudioCaptureProvider
