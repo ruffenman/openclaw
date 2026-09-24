@@ -248,6 +248,9 @@ final class AppState {
         didSet {
             self.ifNotPreview {
                 AppDefaults.standard.set(self.talkStopPhrases, forKey: talkStopPhrasesKey)
+                if self.talkStopPhrases != oldValue, self.talkEnabled {
+                    Task { await TalkModeRuntime.shared.localTalkStopPhrasesDidChange() }
+                }
             }
         }
     }

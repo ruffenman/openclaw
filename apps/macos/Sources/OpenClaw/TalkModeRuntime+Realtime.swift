@@ -47,6 +47,7 @@ extension TalkModeRuntime {
             expectedReconfigurationGeneration,
             lifecycleGeneration: expectedLifecycleGeneration)
         else { return }
+        self.pendingSpokenExit = nil
         self.pendingRealtimeRelayStartLifecycleGeneration = nil
         self.resetRealtimeRecoveryState()
         self.realtimeRelayGeneration &+= 1
@@ -87,9 +88,17 @@ extension TalkModeRuntime {
     }
 
     func beginRealtimeReconfiguration() -> (generation: UInt64, lifecycleGeneration: Int) {
+        pendingSpokenExit = nil
         self.lifecycleGeneration &+= 1
         self.realtimeReconfigurationGeneration &+= 1
         return (self.realtimeReconfigurationGeneration, self.lifecycleGeneration)
+    }
+
+    func localTalkStopPhrasesDidChange() async {
+        // Native speech reads preferences for every final transcript. Only an active
+        // relay has response guidance that needs replacing; preserve native fallback.
+        guard self.realtimeSession != nil || self.realtimeRelayStartGeneration != nil else { return }
+        await self.realtimeRelayPreferenceDidChange()
     }
 
     func realtimeRelayPreferenceDidChange() async {
@@ -582,6 +591,10 @@ extension TalkModeRuntime {
         guard let session = realtimeSession,
               ownsRealtimeRelay(relayGeneration, session)
         else { return }
+        // The accepted local exit owns shutdown; never recover into a new conversation.
+        if pendingSpokenExit != nil {
+            return
+        }
         if case let .outputCancelled(reason) = termination, reason != "pause" {
             await self.setEnabled(false)
             guard !self.isEnabled, self.realtimeSession == nil else { return }

@@ -72,3 +72,73 @@ extension TalkModeRuntimeSpeechTests {
         }
     }
 }
+
+extension TalkModeRuntimeSpeechTests {
+    @Test(arguments: [false, true]) @MainActor
+    func `relay exit guidance is independently negotiated and refreshes current phrases`(supported: Bool) async throws {
+        try #require(AppStateStore.shared.isPreview)
+        let previous = AppStateStore.shared.talkStopPhrases
+        let previousRelayPreference = AppStateStore.shared.talkRealtimeRelayEnabled
+        AppStateStore.shared.talkRealtimeRelayEnabled = true
+        defer {
+            AppStateStore.shared.talkStopPhrases = previous
+            AppStateStore.shared.talkRealtimeRelayEnabled = previousRelayPreference
+        }
+        // This provider does not advertise transcription bias. Response guidance has
+        // a distinct capability and must not silently borrow transcription authority.
+        let catalog = Data((supported ? #"""
+        {"realtime":{"providers":[{"id":"openai","configured":true,"localExitAcknowledgement":{
+          "version":1,"mode":"realtime","transport":"gateway-relay",
+          "maxPhrases":8,"maxPhraseUtf16Units":64,"maxTotalUtf16Units":256
+        }}]}}
+        """# : #"{"realtime":{"providers":[{"id":"openai","configured":true}]}}"#).utf8)
+        let phraseSets = [["conversation finished"], ["that is all"], []]
+        let requests = RuntimeTestRelayRequestLog()
+        let bootstraps = try phraseSets.map { _ in
+            try makeRuntimeTestBootstrap(requests: requests, realtimeModel: "gpt-realtime-2.1", catalog: catalog)
+        }
+        let sequence = RuntimeTestBootstrapSequence(bootstraps: bootstraps)
+        let runtime = TalkModeRuntime(realtimeTalkBootstrapProvider: { try await sequence.next() })
+        await runtime._test_setRealtimeAudioCaptureProvider { RuntimeTestAudioCapture() }
+        await runtime._test_setVoiceWakeReadiness(supported: true, permissionGranted: true)
+        let lifecycle = await runtime._test_prepareEnabledLifecycle()
+        await runtime._test_enableRealtimeRelaySelection()
+        AppStateStore.shared.talkStopPhrases = phraseSets[0]
+        do {
+            try await runtime.startRealtimeRelay(generation: lifecycle)
+            for phrases in phraseSets.dropFirst() {
+                let oldSession = try #require(await runtime.realtimeSession)
+                AppStateStore.shared.talkStopPhrases = phrases
+                // Preview preferences deliberately do not dispatch to the live singleton.
+                // Invoke the exact didSet target on this test-owned active runtime.
+                await runtime.localTalkStopPhrasesDidChange()
+                #expect(await runtime.isEnabled)
+                #expect(await runtime.realtimeSession != nil)
+                #expect(await runtime.realtimeSession !== oldSession)
+            }
+        } catch {
+            await runtime.setEnabled(false)
+            throw error
+        }
+        await runtime.setEnabled(false)
+        #expect(await sequence.requestCount() == 3)
+        #expect(await requests.snapshot().methods.filter { $0 == "talk.session.close" }.count == 3)
+        #expect(await requests.createdExitPhrases() == (
+            supported ? [["conversation finished"], ["that is all"], nil] : [nil, nil, nil]))
+        #expect(await requests.createdHintPhrases() == [nil, nil, nil])
+    }
+
+    @Test func `stop phrase changes preserve active native recognition`() async throws {
+        let runtime = TalkModeRuntime()
+        // A regression must fail by state mutation, never reach real permission UI.
+        await runtime._test_setVoiceWakeReadiness(supported: false, permissionGranted: false)
+        let lifecycle = await runtime._test_prepareEnabledLifecycle()
+        let recognition = try #require(await runtime.beginRecognitionAttempt(lifecycleGeneration: lifecycle))
+        await runtime.localTalkStopPhrasesDidChange()
+        #expect(await runtime.isCurrent(lifecycle))
+        #expect(await runtime.canCommitRecognitionStart(
+            lifecycleGeneration: lifecycle, recognitionAttempt: recognition))
+        #expect(await runtime.realtimeSession == nil)
+        await runtime.setEnabled(false)
+    }
+}

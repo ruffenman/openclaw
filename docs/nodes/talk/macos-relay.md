@@ -23,6 +23,21 @@ To end Talk without clicking the overlay, say **stop talking** or **end talking*
 The Mac turns off Talk Mode, stops capture and playback, and plays a short
 confirmation sound, even when Talk phase sounds are disabled. If you do not hear
 the sound, check that Talk Mode is off; silence does not confirm a successful stop.
+
+On compatible OpenAI `gpt-realtime-2.1` Gateway relays, the Mac also asks the
+assistant to acknowledge a standalone stop command with a brief “Okay.” in its
+current voice. The Mac stops microphone delivery immediately and allows up to
+1.2 seconds of suitable acknowledgement audio to finish before the same
+confirmation sound. A two-second failure deadline keeps shutdown from hanging;
+unrecognized, long, or missing acknowledgements use the existing sound alone.
+This is best effort: speech and transcripts can arrive out of order, so the
+acknowledgement may be clipped or omitted. The final local stop-phrase matcher
+still decides whether Talk turns off; the model cannot disable it.
+
+Changing or resetting stop phrases during realtime Talk restarts that session
+through the normal reconfiguration path so response guidance and recognition
+context use the new list. Older Gateways, other models, and forced agent-consult
+routes retain immediate shutdown and the existing confirmation sound.
 Ending Talk does not disable Voice Wake: it resumes when enabled and available.
 This works in native Talk and the realtime Gateway relay; it ends the local
 conversation mode rather than asking the assistant to stay quiet.
